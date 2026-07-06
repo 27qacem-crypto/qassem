@@ -1,0 +1,25 @@
+{
+  "name": "erp-system",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
+    "db:generate": "pnpm --filter @erp/database db:generate",
+    "db:push": "pnpm --filter @erp/database db:push",
+    "db:migrate": "pnpm --filter @erp/database db:migrate",
+    "db:seed": "pnpm --filter @erp/database db:seed",
+    "db:studio": "pnpm --filter @erp/database db:studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.1.0"
+}

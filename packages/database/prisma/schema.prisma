@@ -1,0 +1,778 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== ENUMS ====================
+
+enum UserRole {
+  SUPER_ADMIN
+  ACCOUNTANT
+  TREASURER
+  WAREHOUSE_MANAGER
+  SALES_USER
+  HR_MANAGER
+  VIEWER
+}
+
+enum PermissionAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  APPROVE
+  PRINT
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum AccountNature {
+  DEBIT
+  CREDIT
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+  REVERSED
+  CANCELLED
+}
+
+enum VoucherType {
+  CASH_IN
+  CASH_OUT
+  BANK_DEPOSIT
+  BANK_WITHDRAWAL
+  CHECK_RECEIVED
+  CHECK_ISSUED
+  VODAFONE_DEPOSIT
+  VODAFONE_WITHDRAWAL
+  VODAFONE_TRANSFER
+}
+
+enum VoucherStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum InventoryMovementType {
+  PURCHASE_IN
+  SALE_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  RETURN_IN
+  RETURN_OUT
+}
+
+enum CheckStatus {
+  PENDING
+  DEPOSITED
+  CLEARED
+  BOUNCED
+  CANCELLED
+  LOST
+}
+
+// ==================== CORE ====================
+
+model Company {
+  id                 String   @id @default(cuid())
+  nameAr             String
+  nameEn             String?
+  address            String?
+  phone              String?
+  email              String?
+  taxNumber          String?  @unique
+  commercialRegister String?  @unique
+  logo               String?
+  currency           String   @default("EGP")
+  fiscalYearStart    DateTime @default(now())
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  branches       Branch[]
+  users          User[]
+  accounts       Account[]
+  warehouses     Warehouse[]
+  items          Item[]
+  itemCategories ItemCategory[]
+  unitsOfMeasure UnitOfMeasure[]
+  cashRegisters  CashRegister[]
+  bankAccounts   BankAccount[]
+  journalEntries JournalEntry[]
+  vouchers       Voucher[]
+  dailyClosures  DailyClosure[]
+  inventoryMovements InventoryMovement[]
+  checks         Check[]
+  bankTransactions  BankTransaction[]
+  auditLogs      AuditLog[]
+  systemSettings SystemSetting[]
+  openingBalances OpeningBalance[]
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  nameAr    String
+  nameEn    String?
+  address   String?
+  phone     String?
+  managerId String?
+  companyId String
+  isMain    Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  manager       User?         @relation("BranchManager", fields: [managerId], references: [id])
+  users         User[]
+  warehouses    Warehouse[]
+  cashRegisters CashRegister[]
+
+  @@index([companyId])
+}
+
+// ==================== USERS & RBAC ====================
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  nameAr       String
+  nameEn       String?
+  phone        String?
+  avatar       String?
+  role         UserRole  @default(VIEWER)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  companyId    String
+  branchId     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch            Branch?           @relation("BranchManager", fields: [branchId], references: [id], onDelete: SetNull)
+  managedBranches   Branch[]          @relation("BranchManager")
+  permissions       UserPermission[]
+  createdEntries    JournalEntry[]    @relation("EntryCreator")
+  postedEntries     JournalEntry[]    @relation("EntryPoster")
+  createdVouchers   Voucher[]         @relation("VoucherCreator")
+  approvedVouchers  Voucher[]         @relation("VoucherApprover")
+  inventoryMovements InventoryMovement[] @relation("MovementCreator")
+  auditLogs         AuditLog[]
+  sessions          Session[]
+  dailyClosures     DailyClosure[]
+  bankTransactions  BankTransaction[] @relation("TransactionCreator")
+  approvedBankTxns  BankTransaction[] @relation("TransactionApprover")
+  checks            Check[]
+
+  @@index([companyId])
+  @@index([branchId])
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  nameAr      String
+  nameEn      String?
+  module      String
+  action      PermissionAction
+  description String?
+  createdAt   DateTime         @default(now())
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+}
+
+model RolePermission {
+  id           String   @id @default(cuid())
+  role         UserRole
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, permissionId])
+}
+
+model UserPermission {
+  id           String   @id @default(cuid())
+  userId       String
+  permissionId String
+  granted      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ==================== CHART OF ACCOUNTS ====================
+
+model Account {
+  id              String       @id @default(cuid())
+  code            String
+  nameAr          String
+  nameEn          String?
+  type            AccountType
+  nature          AccountNature
+  parentId        String?
+  level           Int          @default(1)
+  isActive        Boolean      @default(true)
+  isDetail        Boolean      @default(true)
+  allowManualEntry Boolean     @default(true)
+  description     String?
+  companyId       String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent          Account?          @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Account[]         @relation("AccountHierarchy")
+  journalLines    JournalLine[]
+  openingBalances OpeningBalance[]
+  cashRegisters   CashRegister[]
+  bankAccounts    BankAccount[]     @relation("BankGLAccount")
+  bankFeeAccounts BankAccount[]     @relation("BankFeeAccount")
+  vouchers        Voucher[]         @relation("VoucherAccount")
+  feeVouchers     Voucher[]         @relation("VoucherFeeAccount")
+  inventoryItems  Item[]            @relation("ItemInventoryAccount")
+  cogsItems       Item[]            @relation("ItemCOGSAccount")
+  revenueItems    Item[]            @relation("ItemRevenueAccount")
+
+  @@unique([code, companyId])
+  @@index([companyId, type])
+  @@index([parentId])
+}
+
+model OpeningBalance {
+  id        String   @id @default(cuid())
+  accountId String
+  fiscalYear Int
+  debit     Decimal  @default(0) @db.Decimal(18, 4)
+  credit    Decimal  @default(0) @db.Decimal(18, 4)
+  companyId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, fiscalYear])
+  @@index([companyId, fiscalYear])
+}
+
+// ==================== JOURNAL ENTRIES ====================
+
+model JournalEntry {
+  id              String             @id @default(cuid())
+  entryNumber     String
+  date            DateTime
+  reference       String?
+  description     String
+  status          JournalEntryStatus @default(DRAFT)
+  totalDebit      Decimal            @default(0) @db.Decimal(18, 4)
+  totalCredit     Decimal            @default(0) @db.Decimal(18, 4)
+  isAutoGenerated Boolean            @default(false)
+  sourceModule    String?
+  sourceId        String?
+  companyId       String
+  branchId        String?
+  createdById     String
+  postedById      String?
+  postedAt        DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch    Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdBy User          @relation("EntryCreator", fields: [createdById], references: [id])
+  postedBy  User?         @relation("EntryPoster", fields: [postedById], references: [id])
+  lines     JournalLine[]
+
+  @@unique([entryNumber, companyId])
+  @@index([companyId, date])
+  @@index([companyId, status])
+  @@index([sourceModule, sourceId])
+}
+
+model JournalLine {
+  id          String   @id @default(cuid())
+  entryId     String
+  accountId   String
+  description String?
+  debit       Decimal  @default(0) @db.Decimal(18, 4)
+  credit      Decimal  @default(0) @db.Decimal(18, 4)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  entry   JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([entryId])
+  @@index([accountId])
+}
+
+// ==================== TREASURY ====================
+
+model CashRegister {
+  id              String   @id @default(cuid())
+  nameAr          String
+  nameEn          String?
+  currency        String   @default("EGP")
+  openingBalance  Decimal  @default(0) @db.Decimal(18, 4)
+  currentBalance  Decimal  @default(0) @db.Decimal(18, 4)
+  branchId        String
+  accountId       String
+  companyId       String
+  isMain          Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch     Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  account    Account        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vouchers   Voucher[]
+  dailyClosures DailyClosure[]
+
+  @@unique([branchId, companyId, isMain])
+  @@index([companyId])
+}
+
+model Voucher {
+  id              String        @id @default(cuid())
+  voucherNumber   String
+  type            VoucherType
+  date            DateTime
+  amount          Decimal       @db.Decimal(18, 4)
+  currency        String        @default("EGP")
+  exchangeRate    Decimal       @default(1) @db.Decimal(10, 6)
+  amountBase      Decimal       @db.Decimal(18, 4)
+  description     String
+  status          VoucherStatus @default(PENDING)
+  payeePayerName  String?
+  payeePayerType  String?
+  payeePayerId    String?
+  reference       String?
+  notes           String?
+  cashRegisterId  String
+  accountId       String
+  feeAmount       Decimal       @default(0) @db.Decimal(18, 4)
+  feeAccountId    String?
+  createdById     String
+  approvedById    String?
+  approvedAt      DateTime?
+  journalEntryId  String?
+  companyId       String
+  branchId        String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  cashRegister CashRegister @relation(fields: [cashRegisterId], references: [id], onDelete: Restrict)
+  account      Account      @relation("VoucherAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  feeAccount   Account?     @relation("VoucherFeeAccount", fields: [feeAccountId], references: [id], onDelete: SetNull)
+  createdBy    User         @relation("VoucherCreator", fields: [createdById], references: [id])
+  approvedBy   User?        @relation("VoucherApprover", fields: [approvedById], references: [id])
+  journalEntry JournalEntry?@relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  checks       Check[]
+
+  @@unique([voucherNumber, companyId])
+  @@index([companyId, date])
+  @@index([companyId, type, status])
+  @@index([cashRegisterId, date])
+}
+
+model DailyClosure {
+  id              String   @id @default(cuid())
+  date            DateTime @db.Date
+  openingBalance  Decimal  @db.Decimal(18, 4)
+  totalIn         Decimal  @default(0) @db.Decimal(18, 4)
+  totalOut        Decimal  @default(0) @db.Decimal(18, 4)
+  expectedBalance Decimal  @db.Decimal(18, 4)
+  actualBalance   Decimal  @db.Decimal(18, 4)
+  variance        Decimal  @default(0) @db.Decimal(18, 4)
+  notes           String?
+  cashRegisterId  String
+  closedById      String
+  companyId       String
+  createdAt       DateTime @default(now())
+
+  cashRegister CashRegister @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
+  closedBy     User         @relation(fields: [closedById], references: [id])
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([cashRegisterId, date])
+  @@index([companyId, date])
+}
+
+// ==================== BANKS & VODAFONE CASH ====================
+
+model BankAccount {
+  id              String   @id @default(cuid())
+  nameAr          String
+  nameEn          String?
+  bankName        String
+  branchName      String?
+  accountNumber   String
+  iban            String?  @unique
+  swiftCode       String?
+  currency        String   @default("EGP")
+  openingBalance  Decimal  @default(0) @db.Decimal(18, 4)
+  currentBalance  Decimal  @default(0) @db.Decimal(18, 4)
+  accountId       String
+  companyId       String
+  branchId        String?
+  isActive        Boolean  @default(true)
+  isVodafoneCash  Boolean  @default(false)
+  vodafonePhone   String?
+  feePercentage   Decimal  @default(0) @db.Decimal(5, 2)
+  feeFixedAmount  Decimal  @default(0) @db.Decimal(10, 2)
+  feeAccountId    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  glAccount      Account         @relation("BankGLAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  feeAccount     Account?        @relation("BankFeeAccount", fields: [feeAccountId], references: [id], onDelete: SetNull)
+  transactions   BankTransaction[]
+  counterTxns    BankTransaction[] @relation("CounterTransactions")
+  checks         Check[]
+
+  @@index([companyId, isActive])
+}
+
+model BankTransaction {
+  id                String        @id @default(cuid())
+  transactionNumber String
+  date              DateTime
+  type              VoucherType
+  amount            Decimal       @db.Decimal(18, 4)
+  feeAmount         Decimal       @default(0) @db.Decimal(18, 4)
+  netAmount         Decimal       @db.Decimal(18, 4)
+  description       String
+  reference         String?
+  status            VoucherStatus @default(PENDING)
+  bankAccountId     String
+  counterAccountId  String?
+  voucherId         String?
+  journalEntryId    String?
+  createdById       String
+  approvedById      String?
+  approvedAt        DateTime?
+  companyId         String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  bankAccount    BankAccount     @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  counterAccount BankAccount?    @relation("CounterTransactions", fields: [counterAccountId], references: [id], onDelete: SetNull)
+  voucher        Voucher?        @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+  journalEntry   JournalEntry?   @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy      User            @relation("TransactionCreator", fields: [createdById], references: [id])
+  approvedBy     User?           @relation("TransactionApprover", fields: [approvedById], references: [id])
+  checks         Check[]
+
+  @@unique([transactionNumber, companyId])
+  @@index([bankAccountId, date])
+  @@index([companyId, date])
+}
+
+model Check {
+  id                   String       @id @default(cuid())
+  checkNumber          String
+  bankName             String
+  bankBranch           String?
+  accountNumber        String?
+  drawerName           String
+  drawerType           String?
+  drawerId             String?
+  amount               Decimal      @db.Decimal(18, 4)
+  currency             String       @default("EGP")
+  issueDate            DateTime
+  dueDate              DateTime
+  status               CheckStatus  @default(PENDING)
+  type                 VoucherType
+  notes                String?
+  bankAccountId        String
+  voucherId            String?
+  depositTransactionId String?
+  clearedTransactionId String?
+  returnedTransactionId String?
+  companyId            String
+  branchId             String?
+  createdById          String
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  bankAccount    BankAccount     @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  voucher        Voucher?        @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+  depositTxn     BankTransaction? @relation("CheckDeposit", fields: [depositTransactionId], references: [id], onDelete: SetNull)
+  clearedTxn     BankTransaction? @relation("CheckCleared", fields: [clearedTransactionId], references: [id], onDelete: SetNull)
+  returnedTxn    BankTransaction? @relation("CheckReturned", fields: [returnedTransactionId], references: [id], onDelete: SetNull)
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([checkNumber, bankAccountId])
+  @@index([companyId, status])
+  @@index([dueDate, status])
+  @@index([drawerId, drawerType])
+}
+
+// ==================== INVENTORY ====================
+
+model ItemCategory {
+  id        String   @id @default(cuid())
+  code      String
+  nameAr    String
+  nameEn    String?
+  parentId  String?
+  level     Int      @default(1)
+  isActive  Boolean  @default(true)
+  companyId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   ItemCategory?  @relation("ItemCategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children ItemCategory[] @relation("ItemCategoryHierarchy")
+  items    Item[]
+
+  @@unique([code, companyId])
+  @@index([companyId])
+}
+
+model UnitOfMeasure {
+  id               String   @id @default(cuid())
+  code             String
+  nameAr           String
+  nameEn           String?
+  symbol           String
+  baseUnitId       String?
+  conversionFactor Decimal  @default(1) @db.Decimal(18, 6)
+  isBase           Boolean  @default(false)
+  companyId        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  baseUnit     UnitOfMeasure? @relation("UnitConversion", fields: [baseUnitId], references: [id], onDelete: SetNull)
+  derivedUnits UnitOfMeasure[] @relation("UnitConversion")
+  items        Item[]
+
+  @@unique([code, companyId])
+  @@index([companyId])
+}
+
+model Item {
+  id               String   @id @default(cuid())
+  code             String
+  barcode          String?  @unique
+  nameAr           String
+  nameEn           String?
+  description      String?
+  categoryId       String
+  unitId           String
+  itemType         String   @default("PRODUCT")
+  trackInventory   Boolean  @default(true)
+  minStockLevel    Decimal  @default(0) @db.Decimal(18, 4)
+  maxStockLevel    Decimal? @db.Decimal(18, 4)
+  reorderPoint     Decimal  @default(0) @db.Decimal(18, 4)
+  standardCost     Decimal  @default(0) @db.Decimal(18, 4)
+  salePrice        Decimal  @default(0) @db.Decimal(18, 4)
+  purchasePrice    Decimal  @default(0) @db.Decimal(18, 4)
+  isActive         Boolean  @default(true)
+  hasExpiry        Boolean  @default(false)
+  hasSerial        Boolean  @default(false)
+  accountId        String?
+  cogsAccountId    String?
+  revenueAccountId String?
+  companyId        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category            ItemCategory         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit                UnitOfMeasure        @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  inventoryAccount    Account?             @relation("ItemInventoryAccount", fields: [accountId], references: [id], onDelete: SetNull)
+  cogsAccount         Account?             @relation("ItemCOGSAccount", fields: [cogsAccountId], references: [id], onDelete: SetNull)
+  revenueAccount      Account?             @relation("ItemRevenueAccount", fields: [revenueAccountId], references: [id], onDelete: SetNull)
+  warehouseItems      WarehouseItem[]
+  movements           InventoryMovement[]
+  prices              ItemPrice[]
+
+  @@unique([code, companyId])
+  @@index([companyId, categoryId])
+  @@index([barcode])
+}
+
+model ItemPrice {
+  id        String   @id @default(cuid())
+  itemId    String
+  priceList String
+  price     Decimal  @db.Decimal(18, 4)
+  currency  String   @default("EGP")
+  validFrom DateTime
+  validTo   DateTime?
+  companyId String
+  createdAt DateTime @default(now())
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, priceList, validFrom])
+  @@index([itemId])
+}
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  code      String
+  nameAr    String
+  nameEn    String?
+  address   String?
+  managerId String?
+  branchId  String
+  companyId String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company       Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch        Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  manager       User?               @relation(fields: [managerId], references: [id], onDelete: SetNull)
+  items         WarehouseItem[]
+  movements     InventoryMovement[] @relation("SourceWarehouse")
+  destMovements InventoryMovement[] @relation("DestWarehouse")
+
+  @@unique([code, companyId])
+  @@index([branchId])
+  @@index([companyId])
+}
+
+model WarehouseItem {
+  id                 String  @id @default(cuid())
+  warehouseId        String
+  itemId             String
+  quantityOnHand     Decimal @default(0) @db.Decimal(18, 4)
+  quantityReserved   Decimal @default(0) @db.Decimal(18, 4)
+  quantityAvailable  Decimal @default(0) @db.Decimal(18, 4)
+  avgCost            Decimal @default(0) @db.Decimal(18, 4)
+  lastCost           Decimal @default(0) @db.Decimal(18, 4)
+  minLevel           Decimal @default(0) @db.Decimal(18, 4)
+  maxLevel           Decimal? @db.Decimal(18, 4)
+  location           String?
+  updatedAt          DateTime @updatedAt
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, itemId])
+  @@index([warehouseId])
+  @@index([itemId])
+  @@index([quantityAvailable, minLevel])
+}
+
+model InventoryMovement {
+  id                  String                 @id @default(cuid())
+  movementNumber      String
+  type                InventoryMovementType
+  date                DateTime
+  itemId              String
+  sourceWarehouseId   String?
+  destWarehouseId     String?
+  quantity            Decimal                @db.Decimal(18, 4)
+  unitCost            Decimal                @db.Decimal(18, 4)
+  totalCost           Decimal                @db.Decimal(18, 4)
+  reference           String?
+  referenceType       String?
+  referenceId         String?
+  notes               String?
+  status              VoucherStatus          @default(APPROVED)
+  journalEntryId      String?
+  createdById         String
+  companyId           String
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  item            Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  sourceWarehouse Warehouse?    @relation("SourceWarehouse", fields: [sourceWarehouseId], references: [id], onDelete: SetNull)
+  destWarehouse   Warehouse?    @relation("DestWarehouse", fields: [destWarehouseId], references: [id], onDelete: SetNull)
+  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy       User          @relation("MovementCreator", fields: [createdById], references: [id])
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([movementNumber, companyId])
+  @@index([companyId, date])
+  @@index([itemId, date])
+  @@index([sourceWarehouseId, date])
+  @@index([destWarehouseId, date])
+}
+
+// ==================== AUDIT & SETTINGS ====================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  module     String
+  entityId   String?
+  entityType String?
+  oldData    Json?
+  newData    Json?
+  ipAddress  String?
+  userAgent  String?
+  companyId  String
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  category    String   @default("GENERAL")
+  description String?
+  isPublic    Boolean  @default(false)
+  companyId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+}
