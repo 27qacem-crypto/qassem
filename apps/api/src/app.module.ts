@@ -9,6 +9,7 @@ import { AccountsModule } from './modules/accounts/accounts.module';
 import { JournalEntriesModule } from './modules/journal-entries/journal-entries.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { TreasuryModule } from './modules/treasury/treasury.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AuditModule } from './modules/audit/audit.module';
     JournalEntriesModule,
     ReportsModule,
     AuditModule,
+    TreasuryModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
